@@ -145,12 +145,26 @@ app.post('/api/login', (req, res, next) => {
     })(req, res, next);
 });
 
+app.get('/api/getUser', (req, res) => {
+    if (req.isAuthenticated()) {
+        res.json(req.user);
+    } else {
+        res.status(401).json({ message: 'User not authenticated' });
+    }
+});
+
 app.get('/api/logout', (req, res) => {
     req.logout((err) => {
         if (err) {
             return res.status(500).json({ message: 'Internal server error' });
         }
-        res.json({ message: 'Logout successful' });
+        req.session.destroy((err) => {
+            if (err) {
+                return res.status(500).json({message: "Failed to destroy session"});
+            }
+            res.clearCookie("connect.sid");
+            return res.json({message: "Logout Successful"});
+        });
     });
 });
 
