@@ -153,6 +153,44 @@ app.get('/api/getUser', (req, res) => {
     }
 });
 
+app.post('/api/save-session', async (req, res) => {
+    const {userId, content, writingTime, breakTime, inactiveTime} = req.body;
+
+    try {
+        const result = await pool.query(
+            `INSERT INTO sessions (user_id, content, writing_time, break_time, inactive_time, end_time, updated_at) 
+            VALUES ($1, $2, $3, $4, $5, NOW(), NOW()) 
+            ON CONFLICT (id) 
+            DO UPDATE SET content = EXCLUDED.content, writing_time = EXCLUDED.writing_time, break_time = EXCLUDED.break_time, end_time = NOW(), updated_at = NOW() 
+            RETURNING id`,
+            [userId, content, writingTime, breakTime, inactiveTime]
+        );
+        const sessionId = result.rows[0].id;
+        res.status(200).json({sessionId});
+    } catch (error) {
+        console.error("Error saving session:", error);
+        res.status(500).json({message: "Internal server error"});
+    }
+})
+
+app.post('/api/edit-session', async (req, res) => {
+    const { sessionId, userId, content, writingTime, breakTime, inactiveTime } = req.body;
+
+    try {
+        await pool.query(
+            `UPDATE sessions
+             SET content = $3, writing_time = $4, break_time = $5, inactive_time = $6, updated_at = NOW()
+             WHERE id = $1 AND user_id = $2`,
+            [sessionId, userId, content, writingTime, breakTime, inactiveTime]
+        );
+        res.status(200).json({ message: 'Session updated successfully' });
+    } catch (error) {
+        console.error('Error updating session data:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+});
+  
+
 app.get('/api/logout', (req, res) => {
     req.logout((err) => {
         if (err) {
