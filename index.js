@@ -189,6 +189,35 @@ app.post('/api/edit-session', async (req, res) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 });
+
+app.get('/api/user-texts/:userId', async (req, res) => {
+    const { userId } = req.params;
+
+    try {
+        const result = await pool.query(
+            'SELECT * FROM sessions WHERE user_id = $1 ORDER BY updated_at DESC',
+            [userId]
+        );
+        res.status(200).json(result.rows);
+    } catch (error) {
+        console.error('Error fetching user texts:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
+
+app.delete('/api/delete-text/:sessionId', async (req, res) => {
+    const { sessionId } = req.params;
+
+    try {
+        await pool.query('DELETE FROM sessions WHERE id = $1', [sessionId]);
+        res.status(200).json({ message: 'Text deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting text:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
   
 
 app.get('/api/logout', (req, res) => {
