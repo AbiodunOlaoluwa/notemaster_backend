@@ -153,6 +153,54 @@ app.get('/api/getUser', (req, res) => {
     }
 });
 
+app.get('/api/dashboard-data/:userId', async (req, res) => {
+    const { userId } = req.params;
+  
+    try {
+      const activityBreakdownQuery = `
+        SELECT 
+          SUM(writing_time) AS writing_time,
+          SUM(break_time) AS break_time,
+          SUM(inactive_time) AS inactive_time
+        FROM sessions
+        WHERE user_id = $1
+      `;
+      const activityBreakdownResult = await pool.query(activityBreakdownQuery, [userId]);
+      const activityBreakdown = activityBreakdownResult.rows[0];
+  
+      const sessionDurationsQuery = `
+        SELECT id, writing_time AS writing_duration
+        FROM sessions
+        WHERE user_id = $1
+        ORDER BY updated_at DESC
+        LIMIT 5
+      `;
+      const sessionDurationsResult = await pool.query(sessionDurationsQuery, [userId]);
+      const sessionDurations = { sessions: sessionDurationsResult.rows };
+  
+      const monthlyProgressQuery = `
+        SELECT
+          TO_CHAR(date_trunc('month', updated_at), 'Mon') AS month,
+          SUM(writing_time) AS writing_time
+        FROM sessions
+        WHERE user_id = $1
+        GROUP BY date_trunc('month', updated_at)
+        ORDER BY date_trunc('month', updated_at)
+      `;
+      const monthlyProgressResult = await pool.query(monthlyProgressQuery, [userId]);
+      const monthlyProgress = {
+        months: monthlyProgressResult.rows.map(row => row.month),
+        writingTimes: monthlyProgressResult.rows.map(row => row.writing_time)
+      };
+  
+      res.status(200).json({ activityBreakdown, sessionDurations, monthlyProgress });
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+  
+
 app.post('/api/save-session', async (req, res) => {
     const {userId, content, writingTime, breakTime, inactiveTime} = req.body;
 
@@ -205,6 +253,55 @@ app.get('/api/user-texts/:userId', async (req, res) => {
     }
 });
 
+app.get('/api/text/:textId', async (req, res) => {
+    const { textId } = req.params;
+  
+    try {
+      const result = await pool.query('SELECT * FROM sessions WHERE id = $1', [textId]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: 'Text not found' });
+      }
+      res.status(200).json(result.rows[0]);
+    } catch (error) {
+      console.error('Error fetching text:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+
+app.post('/api/update-text/:textId', async (req, res) => {
+    const { textId } = req.params;
+    const { userId, content, writingTime, breakTime, inactiveTime } = req.body;
+
+    if (
+        isNaN(writingTime) || isNaN(breakTime) || isNaN(inactiveTime) ||
+        writingTime < 0 || breakTime < 0 || inactiveTime < 0
+    ) {
+        return res.status(400).json({ message: 'Invalid time values' });
+    }
+
+    try {
+        const existingText = await pool.query('SELECT * FROM sessions WHERE id = $1 AND user_id = $2', [textId, userId]);
+        if (existingText.rows.length === 0) {
+            return res.status(404).json({ message: 'Text not found' });
+        }
+
+        const updatedWritingTime = existingText.rows[0].writing_time + writingTime;
+        const updatedBreakTime = existingText.rows[0].break_time + breakTime;
+        const updatedInactiveTime = existingText.rows[0].inactive_time + inactiveTime;
+
+        await pool.query(
+            'UPDATE sessions SET content = $2, writing_time = $3, break_time = $4, inactive_time = $5, updated_at = NOW() WHERE id = $1 AND user_id = $6',
+            [textId, content, updatedWritingTime, updatedBreakTime, updatedInactiveTime, userId]
+        );
+        res.status(200).json({ message: 'Text updated successfully' });
+    } catch (error) {
+        console.error('Error updating text:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
+  
 
 app.delete('/api/delete-text/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
@@ -217,8 +314,6 @@ app.delete('/api/delete-text/:sessionId', async (req, res) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 });
-
-  
 
 app.get('/api/logout', (req, res) => {
     req.logout((err) => {
