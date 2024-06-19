@@ -271,7 +271,7 @@ app.get('/api/text/:textId', async (req, res) => {
 
 app.post('/api/update-text/:textId', async (req, res) => {
     const { textId } = req.params;
-    const { userId, content, writingTime, breakTime, inactiveTime } = req.body;
+    const { userId, content, writingTime, breakTime, inactiveTime, interruptions } = req.body;
 
     if (
         isNaN(writingTime) || isNaN(breakTime) || isNaN(inactiveTime) ||
