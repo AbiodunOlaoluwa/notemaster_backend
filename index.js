@@ -33,11 +33,11 @@ app.use(session({
     resave: false,
     saveUninitialized: true,
     rolling: true,
-    cookie: { 
+    cookie: {
         secure: false,
         maxAge: 3600000,
         httpOnly: true,
-     } // set to true if using https
+    } // set to true if using https
 }));
 
 app.use(passport.initialize());
@@ -155,9 +155,9 @@ app.get('/api/getUser', (req, res) => {
 
 app.get('/api/dashboard-data/:userId', async (req, res) => {
     const { userId } = req.params;
-  
+
     try {
-      const activityBreakdownQuery = `
+        const activityBreakdownQuery = `
         SELECT 
           SUM(writing_time) AS writing_time,
           SUM(break_time) AS break_time,
@@ -165,20 +165,20 @@ app.get('/api/dashboard-data/:userId', async (req, res) => {
         FROM sessions
         WHERE user_id = $1
       `;
-      const activityBreakdownResult = await pool.query(activityBreakdownQuery, [userId]);
-      const activityBreakdown = activityBreakdownResult.rows[0];
-  
-      const sessionDurationsQuery = `
+        const activityBreakdownResult = await pool.query(activityBreakdownQuery, [userId]);
+        const activityBreakdown = activityBreakdownResult.rows[0];
+
+        const sessionDurationsQuery = `
         SELECT id, writing_time AS writing_duration
         FROM sessions
         WHERE user_id = $1
         ORDER BY updated_at DESC
         LIMIT 5
       `;
-      const sessionDurationsResult = await pool.query(sessionDurationsQuery, [userId]);
-      const sessionDurations = { sessions: sessionDurationsResult.rows };
-  
-      const monthlyProgressQuery = `
+        const sessionDurationsResult = await pool.query(sessionDurationsQuery, [userId]);
+        const sessionDurations = { sessions: sessionDurationsResult.rows };
+
+        const monthlyProgressQuery = `
         SELECT
           TO_CHAR(date_trunc('month', updated_at), 'Mon') AS month,
           SUM(writing_time) AS writing_time
@@ -187,22 +187,22 @@ app.get('/api/dashboard-data/:userId', async (req, res) => {
         GROUP BY date_trunc('month', updated_at)
         ORDER BY date_trunc('month', updated_at)
       `;
-      const monthlyProgressResult = await pool.query(monthlyProgressQuery, [userId]);
-      const monthlyProgress = {
-        months: monthlyProgressResult.rows.map(row => row.month),
-        writingTimes: monthlyProgressResult.rows.map(row => row.writing_time)
-      };
-  
-      res.status(200).json({ activityBreakdown, sessionDurations, monthlyProgress });
+        const monthlyProgressResult = await pool.query(monthlyProgressQuery, [userId]);
+        const monthlyProgress = {
+            months: monthlyProgressResult.rows.map(row => row.month),
+            writingTimes: monthlyProgressResult.rows.map(row => row.writing_time)
+        };
+
+        res.status(200).json({ activityBreakdown, sessionDurations, monthlyProgress });
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-      res.status(500).json({ message: 'Internal server error' });
+        console.error('Error fetching dashboard data:', error);
+        res.status(500).json({ message: 'Internal server error' });
     }
-  });
-  
+});
+
 
 app.post('/api/save-session', async (req, res) => {
-    const {userId, content, writingTime, breakTime, inactiveTime} = req.body;
+    const { userId, content, writingTime, breakTime, inactiveTime } = req.body;
 
     try {
         const result = await pool.query(
@@ -214,10 +214,10 @@ app.post('/api/save-session', async (req, res) => {
             [userId, content, writingTime, breakTime, inactiveTime]
         );
         const sessionId = result.rows[0].id;
-        res.status(200).json({sessionId});
+        res.status(200).json({ sessionId });
     } catch (error) {
         console.error("Error saving session:", error);
-        res.status(500).json({message: "Internal server error"});
+        res.status(500).json({ message: "Internal server error" });
     }
 })
 
@@ -255,18 +255,18 @@ app.get('/api/user-texts/:userId', async (req, res) => {
 
 app.get('/api/text/:textId', async (req, res) => {
     const { textId } = req.params;
-  
+
     try {
-      const result = await pool.query('SELECT * FROM sessions WHERE id = $1', [textId]);
-      if (result.rows.length === 0) {
-        return res.status(404).json({ message: 'Text not found' });
-      }
-      res.status(200).json(result.rows[0]);
+        const result = await pool.query('SELECT * FROM sessions WHERE id = $1', [textId]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Text not found' });
+        }
+        res.status(200).json(result.rows[0]);
     } catch (error) {
-      console.error('Error fetching text:', error);
-      res.status(500).json({ message: 'Internal server error' });
+        console.error('Error fetching text:', error);
+        res.status(500).json({ message: 'Internal server error' });
     }
-  });
+});
 
 
 app.post('/api/update-text/:textId', async (req, res) => {
@@ -301,7 +301,7 @@ app.post('/api/update-text/:textId', async (req, res) => {
     }
 });
 
-  
+
 
 app.delete('/api/delete-text/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
@@ -315,6 +315,104 @@ app.delete('/api/delete-text/:sessionId', async (req, res) => {
     }
 });
 
+app.get('/api/recommendations/:userId', async (req, res) => {
+    const { userId } = req.params;
+
+    try {
+        const result = await pool.query(
+            'SELECT writing_time, break_time, inactive_time, (writing_time + break_time + inactive_time) AS session_duration FROM sessions WHERE user_id = $1',
+            [userId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'No session data found for user' });
+        }
+
+        // Calculate averages and totals
+        const totalSessions = result.rows.length;
+        const totalWritingTime = result.rows.reduce((acc, row) => acc + row.writing_time, 0);
+        const totalBreakTime = result.rows.reduce((acc, row) => acc + row.break_time, 0);
+        const totalInactiveTime = result.rows.reduce((acc, row) => acc + row.inactive_time, 0);
+        const totalSessionDuration = result.rows.reduce((acc, row) => acc + row.session_duration, 0);
+
+        const avgWritingTime = totalWritingTime / totalSessions;
+        const avgBreakTime = totalBreakTime / totalSessions;
+        const avgInactiveTime = totalInactiveTime / totalSessions;
+        const avgSessionDuration = totalSessionDuration / totalSessions;
+
+        // Generate recommendations
+        const recommendations = [];
+
+        // Writing Time Recommendations
+        if (avgWritingTime < 30) {
+            recommendations.push('Consider increasing your writing sessions to at least 30 minutes to improve productivity.');
+        } else if (avgWritingTime > 60) {
+            recommendations.push('Great job on your writing sessions, but make sure to take breaks to avoid burnout.');
+        } else {
+            recommendations.push('Great job on maintaining consistent writing sessions!');
+        }
+
+        // Break Time Recommendations
+        if (avgBreakTime > 20) {
+            recommendations.push('You are taking longer breaks. Try to limit your break time to stay focused.');
+        } else if (avgBreakTime < 5) {
+            recommendations.push('Consider taking slightly longer breaks to refresh your mind.');
+        } else {
+            recommendations.push('Your break durations are well managed.');
+        }
+
+        // Inactive Time Recommendations
+        if (avgInactiveTime > 30) {
+            recommendations.push('There is a lot of inactive time. Consider minimizing distractions and staying focused.');
+        } else if (avgInactiveTime < 10) {
+            recommendations.push('Good job on keeping inactive time to a minimum.');
+        } else {
+            recommendations.push('Your inactive time is within a reasonable range.');
+        }
+
+        // Session Duration Recommendations
+        if (avgSessionDuration < 45) {
+            recommendations.push('Try to extend your overall session duration for better focus and productivity.');
+        } else if (avgSessionDuration > 120) {
+            recommendations.push('Consider shorter sessions to avoid fatigue and maintain higher quality work.');
+        }
+
+        // Additional Recommendations Based on Patterns
+        if (avgWritingTime > 45 && avgBreakTime < 10) {
+            recommendations.push('Since you write for longer periods with short breaks, make sure to stay hydrated and stretch.');
+        }
+
+        if (avgInactiveTime > avgWritingTime) {
+            recommendations.push('Your inactive time is higher than your writing time. Try to create a distraction-free environment.');
+        }
+
+        // Recommendations Based on Specific Edge Cases
+        if (totalSessions < 5) {
+            recommendations.push('Try to maintain a consistent writing habit to see significant improvements.');
+        } else if (totalSessions > 20) {
+            recommendations.push('Excellent consistency! Keep up the good work.');
+        }
+
+        if (avgSessionDuration < avgWritingTime) {
+            recommendations.push('Your sessions are very writing-intensive. Make sure to balance with adequate breaks and relaxation.');
+        }
+
+        if (avgBreakTime > avgInactiveTime) {
+            recommendations.push('Consider reducing break times and inactive periods to improve overall productivity.');
+        }
+
+        if (avgWritingTime > avgSessionDuration / 2) {
+            recommendations.push('You are spending a significant portion of your sessions writing. Ensure you are taking care of your physical health with regular breaks.');
+        }
+
+        res.status(200).json({ recommendations });
+    } catch (error) {
+        console.error('Error fetching recommendations:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
+
 app.get('/api/logout', (req, res) => {
     req.logout((err) => {
         if (err) {
@@ -322,10 +420,10 @@ app.get('/api/logout', (req, res) => {
         }
         req.session.destroy((err) => {
             if (err) {
-                return res.status(500).json({message: "Failed to destroy session"});
+                return res.status(500).json({ message: "Failed to destroy session" });
             }
             res.clearCookie("connect.sid");
-            return res.json({message: "Logout Successful"});
+            return res.json({ message: "Logout Successful" });
         });
     });
 });
