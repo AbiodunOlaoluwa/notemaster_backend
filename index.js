@@ -34,7 +34,7 @@ app.use(session({
     saveUninitialized: true,
     rolling: true,
     cookie: {
-        sameSite: process.env.NODE_ENV === "PRODUCTION" ? "None" : "Lax",
+        sameSite: "Lax",
         secure: process.env.NODE_ENV === "PRODUCTION",
         maxAge: 3600000,
         httpOnly: true,
