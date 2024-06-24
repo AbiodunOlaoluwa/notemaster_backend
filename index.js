@@ -8,8 +8,6 @@ import { Strategy as LocalStrategy } from 'passport-local';
 import bodyParser from 'body-parser';
 import { Resend } from 'resend';
 import session from 'express-session';
-import RedisStore from 'connect-redis';
-import {createClient} from 'redis';
 
 dotenv.config();
 
@@ -30,46 +28,18 @@ app.use(cors({
 
 app.use(bodyParser.json());
 
-if (process.env.NODE_ENV === "PRODUCTION") {
-
-    const redisClient = createClient({
-        url: process.env.REDIS_CONNECTION_STRING,
-    })
-    
-    redisClient.connect().catch(console.error)
-    
-    const redisStore = new RedisStore({
-        client: redisClient,
-        prefix: "notemaster:",
-    })
-
-    app.use(session({
-        store: redisStore,
-        secret: "TOPSECRETWORD",
-        resave: false,
-        saveUninitialized: false,
-        rolling: true,
-        cookie: {
-            sameSite: process.env.NODE_ENV === "PRODUCTION" ? "None" : "Lax",
-            secure: process.env.NODE_ENV === "PRODUCTION",
-            maxAge: 3600000,
-            httpOnly: true,
-        } // set to true if using https
-    }));
-} else if (process.env.NODE_ENV === "DEVELOPMENT") {
-    app.use(session({
-        secret: "TOPSECRETWORD",
-        resave: false,
-        saveUninitialized: false,
-        rolling: true,
-        cookie: {
-            sameSite: process.env.NODE_ENV === "PRODUCTION" ? "None" : "Lax",
-            secure: process.env.NODE_ENV === "PRODUCTION",
-            maxAge: 3600000,
-            httpOnly: true,
-        } // set to true if using https
-    }));
-}
+app.use(session({
+    secret: "TOPSECRETWORD",
+    resave: false,
+    saveUninitialized: true,
+    rolling: true,
+    cookie: {
+        sameSite: process.env.NODE_ENV === "PRODUCTION" ? "None" : "Lax",
+        secure: process.env.NODE_ENV === "PRODUCTION",
+        maxAge: 3600000,
+        httpOnly: true,
+    } // set to true if using https
+}));
 
 app.use(passport.initialize());
 app.use(passport.session());
