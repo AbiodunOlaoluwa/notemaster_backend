@@ -18,7 +18,7 @@ const port = process.env.PORT || 5000;
 const { Pool } = pg;
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: false
+    ssl: process.env.NODE_ENV === "PRODUCTION"
 });
 
 app.use(cors({
@@ -34,7 +34,7 @@ app.use(session({
     saveUninitialized: true,
     rolling: true,
     cookie: {
-        secure: false,
+        secure: process.env.NODE_ENV === "PRODUCTION",
         maxAge: 3600000,
         httpOnly: true,
     } // set to true if using https
