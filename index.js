@@ -3,11 +3,11 @@ import dotenv from 'dotenv';
 import pg from 'pg';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
-import passport from 'passport';
-import { Strategy as LocalStrategy } from 'passport-local';
 import bodyParser from 'body-parser';
 import { Resend } from 'resend';
-import session from 'express-session';
+import { verifyToken, generateToken } from './utils/jwt.js';
+import cookieParser from 'cookie-parser';
+import authMiddleware from './middlewares/auth.js';
 
 dotenv.config();
 
@@ -27,68 +27,21 @@ app.use(cors({
 }));
 
 app.use(bodyParser.json());
-
-app.use(session({
-    secret: "TOPSECRETWORD",
-    resave: false,
-    saveUninitialized: true,
-    rolling: true,
-    cookie: {
-        sameSite: process.env.NODE_ENV === "PRODUCTION" ? "None" : "Lax",
-        secure: process.env.NODE_ENV === "PRODUCTION",
-        maxAge: 3600000,
-        httpOnly: true,
-    } // set to true if using https
-}));
-
-app.use(passport.initialize());
-app.use(passport.session());
+app.use(cookieParser());
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Configure Passport Local Strategy
-passport.use(new LocalStrategy({
-    usernameField: 'email',
-    passwordField: 'password'
-}, async (email, password, done) => {
-    try {
-        const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-        const user = result.rows[0];
-
-        if (!user) {
-            return done(null, false, { message: 'Incorrect email.' });
-        }
-
-        const isValidPassword = bcrypt.compareSync(password, user.password);
-
-        if (!isValidPassword) {
-            return done(null, false, { message: 'Incorrect password.' });
-        }
-
-        return done(null, user);
-    } catch (err) {
-        return done(err);
-    }
-}));
-
-passport.serializeUser((user, done) => {
-    done(null, user.id);
-});
-
-passport.deserializeUser(async (id, done) => {
-    try {
-        const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
-        const user = result.rows[0];
-        done(null, user);
-    } catch (err) {
-        done(err, null);
-    }
-});
-
 app.get('/api/checkAuth', (req, res) => {
-    if (req.isAuthenticated()) {
+    const token = req.cookies.token;
+
+    if (!token) {
+        return res.status(401).json({ authenticated: false });
+    }
+
+    try {
+        verifyToken(token);
         res.status(200).json({ authenticated: true });
-    } else {
+    } catch (err) {
         res.status(401).json({ authenticated: false });
     }
 });
@@ -129,28 +82,37 @@ app.post('/api/createAccount', async (req, res) => {
     }
 });
 
-app.post('/api/login', (req, res, next) => {
-    passport.authenticate('local', (err, user, info) => {
-        if (err) {
-            return res.status(500).json({ message: 'Internal server error' });
-        }
+app.post('/api/login', async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+        const user = result.rows[0];
+
         if (!user) {
-            return res.status(401).json({ message: 'Invalid email or password' });
+            return res.status(401).json({ message: 'Incorrect email or password.' });
         }
-        req.logIn(user, (err) => {
-            if (err) {
-                return res.status(500).json({ message: 'Internal server error' });
-            }
-            return res.json({ message: 'Login successful', user });
-        });
-    })(req, res, next);
+
+        const isValidPassword = bcrypt.compareSync(password, user.password);
+
+        if (!isValidPassword) {
+            return res.status(401).json({ message: 'Incorrect email or password.' });
+        }
+
+        const token = generateToken(user);
+        res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === "PRODUCTION" });
+        res.json({ message: 'Logged in successfully', user });
+    } catch (err) {
+        res.status(500).json({ message: 'Internal server error' });
+    }
 });
 
-app.get('/api/getUser', (req, res) => {
-    if (req.isAuthenticated()) {
-        res.json(req.user);
-    } else {
-        res.status(401).json({ message: 'User not authenticated' });
+app.get('/api/getUser', authMiddleware, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+        const user = result.rows[0];
+        res.json(user);
+    } catch (err) {
+        res.status(500).json({ message: 'Internal server error' });
     }
 });
 
@@ -415,18 +377,8 @@ app.get('/api/recommendations/:userId', async (req, res) => {
 
 
 app.get('/api/logout', (req, res) => {
-    req.logout((err) => {
-        if (err) {
-            return res.status(500).json({ message: 'Internal server error' });
-        }
-        req.session.destroy((err) => {
-            if (err) {
-                return res.status(500).json({ message: "Failed to destroy session" });
-            }
-            res.clearCookie("connect.sid");
-            return res.json({ message: "Logout Successful" });
-        });
-    });
+    res.clearCookie('token', { httpOnly: true, secure: process.env.NODE_ENV === "PRODUCTION" });
+    return res.json({ message: 'Logout Successful' });
 });
 
 app.listen(port, () => {
